@@ -257,3 +257,129 @@ pub const fn bright_cyan<T: Display>(value: T) -> StyledText<T> {
 pub const fn bright_white<T: Display>(value: T) -> StyledText<T> {
     color(Color::BrightWhite, value)
 }
+
+/// A printer that can toggle color output on or off
+#[derive(Debug, Clone)]
+pub struct Printer {
+    use_color: bool,
+}
+
+impl Default for Printer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Printer {
+    /// Create a new printer with colors enabled
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { use_color: true }
+    }
+
+    /// Create a printer with colors disabled
+    #[must_use]
+    pub const fn without_color() -> Self {
+        Self { use_color: false }
+    }
+
+    /// Create a printer with color detection based on TTY
+    #[must_use]
+    pub fn auto_detect() -> Self {
+        #[cfg(unix)]
+        {
+            use std::io::IsTerminal;
+            Self {
+                use_color: std::io::stdout().is_terminal(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            Self { use_color: true }
+        }
+    }
+
+    /// Enable colors
+    pub fn enable_color(&mut self) {
+        self.use_color = true;
+    }
+
+    /// Disable colors
+    pub fn disable_color(&mut self) {
+        self.use_color = false;
+    }
+
+    /// Check if colors are enabled
+    #[must_use]
+    pub const fn colors_enabled(&self) -> bool {
+        self.use_color
+    }
+
+    /// Print styled text, respecting the color setting
+    pub fn print<W: Write, T: Display>(
+        &self,
+        writer: &mut W,
+        style: Style,
+        value: T,
+    ) -> io::Result<()> {
+        if self.use_color {
+            print_styled(writer, style, value)
+        } else {
+            write!(writer, "{value}")?;
+            writer.flush()
+        }
+    }
+
+    /// Print styled text with newline, respecting the color setting
+    pub fn println<W: Write, T: Display>(
+        &self,
+        writer: &mut W,
+        style: Style,
+        value: T,
+    ) -> io::Result<()> {
+        if self.use_color {
+            println_styled(writer, style, value)
+        } else {
+            writeln!(writer, "{value}")?;
+            writer.flush()
+        }
+    }
+
+    /// Create a styled text that respects this printer's color setting
+    #[must_use]
+    pub fn styled<T: Display>(&self, style: Style, value: T) -> PrinterStyledText<T> {
+        PrinterStyledText {
+            style,
+            value,
+            use_color: self.use_color,
+        }
+    }
+
+    /// Convenience method for colored text
+    #[must_use]
+    pub fn color<T: Display>(&self, color: Color, value: T) -> PrinterStyledText<T> {
+        self.styled(style().fg(color), value)
+    }
+}
+
+/// Styled text that respects a specific color setting
+pub struct PrinterStyledText<T: Display> {
+    style: Style,
+    value: T,
+    use_color: bool,
+}
+
+impl<T: Display> Display for PrinterStyledText<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.use_color {
+            if let Some(color) = self.style.fg_color {
+                write!(f, "\x1b[{}m", color.code())?;
+            }
+            write!(f, "{}", self.value)?;
+            write!(f, "\x1b[0m")?;
+        } else {
+            write!(f, "{}", self.value)?;
+        }
+        Ok(())
+    }
+}
